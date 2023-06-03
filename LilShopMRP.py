@@ -64,25 +64,43 @@ def get_inventory_with_product_names():
     with closing(connect_db()) as db:
         db.row_factory = sqlite3.Row
         inventory = db.execute("""
-            SELECT Inventory.id, Inventory.StockCount, Products.ProductName
+            SELECT Inventory.id, Inventory.InventoryCount, Products.ProductName
             FROM Inventory
             INNER JOIN Products ON Inventory.ProductID = Products.id
         """).fetchall()
     return [dict(row) for row in inventory]
 
-def get_stock_count():
+def get_inventory_count():
     with closing(connect_db()) as db:
-        total = db.execute("SELECT SUM(StockCount) FROM Inventory").fetchone()[0]
+        total = db.execute("SELECT SUM(InventoryCount) FROM Inventory").fetchone()[0]
     return total if total is not None else 0
 
-def get_total_stock_value():
+def get_total_inventory_value():
     with closing(connect_db()) as db:
         total = db.execute("""
-            SELECT SUM(Inventory.StockCount * Products.ProductPrice)
+            SELECT SUM(Inventory.InventoryCount * Products.ProductPrice)
             FROM Inventory
             INNER JOIN Products ON Inventory.ProductID = Products.id
         """).fetchone()[0]
     return total if total is not None else 0
+
+def add_supplier(supplier_name, supplier_phone, supplier_email, product_id, product_cost):
+    add_to_db('Suppliers', 
+              SupplierName=supplier_name, 
+              SupplierPhone=supplier_phone, 
+              SupplierEmail=supplier_email, 
+              ProductID=product_id, 
+              ProductCost=product_cost)
+    
+def get_suppliers_with_product_names():
+    with closing(connect_db()) as db:
+        db.row_factory = sqlite3.Row
+        suppliers = db.execute("""
+            SELECT Suppliers.id,Suppliers.SupplierName, Suppliers.SupplierPhone, Suppliers.SupplierEmail, Suppliers.ProductCost, Products.ProductName
+            FROM Suppliers
+            INNER JOIN Products ON Suppliers.ProductID = Products.id
+        """).fetchall()
+    return [dict(row) for row in suppliers]    
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -103,18 +121,19 @@ def close_connection(exception):
 @app.route('/')
 def index():
     products = get_table('Products')
-    product_count = count_table_rows('Products')
-    
+    product_count = count_table_rows('Products')    
     inventory = get_inventory_with_product_names()
-    stock_count = get_stock_count()
-    total_stock_value = get_total_stock_value()
+    inventory_count = get_inventory_count()
+    total_inventory_value = get_total_inventory_value()    
+    suppliers = get_suppliers_with_product_names()
     
     return render_template('index.html', 
                            products=products,
                            product_count=product_count,                           
                            inventory=inventory,
-                           stock_count=stock_count,
-                           total_stock_value=total_stock_value)
+                           inventory_count=inventory_count,
+                           total_inventory_value=total_inventory_value,
+                           suppliers=suppliers)
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -148,27 +167,38 @@ def delete_product(id):
 
 @app.route('/add_inventory', methods=['POST'])
 def add_inventory_route():
-    add_to_db('Inventory', ProductID=request.form['ProductID'], StockCount=request.form['StockCount'])
+    add_to_db('Inventory', ProductID=request.form['ProductID'], InventoryCount=request.form['InventoryCount'])
     return redirect(url_for('index'))
 
 @app.route('/increment_inventory/<int:id>', methods=['POST'])
 def increment_inventory(id):
     with closing(connect_db()) as db:
-        db.execute("UPDATE Inventory SET StockCount = StockCount + 1 WHERE id = ?", (id,))
+        db.execute("UPDATE Inventory SET InventoryCount = InventoryCount + 1 WHERE id = ?", (id,))
         db.commit()
     return redirect(url_for('index'))
 
 @app.route('/decrement_inventory/<int:id>', methods=['POST'])
 def decrement_inventory(id):
     with closing(connect_db()) as db:
-        db.execute("UPDATE Inventory SET StockCount = StockCount - 1 WHERE id = ?", (id,))
-        db.commit()
+        quantity = db.execute("SELECT InventoryCount FROM Inventory WHERE id = ?", (id,)).fetchone()[0]
+        if quantity > 0:
+            db.execute("UPDATE Inventory SET InventoryCount = InventoryCount - 1 WHERE id = ?", (id,))
+            db.commit()
     return redirect(url_for('index'))
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # SUPPLIERS
 
+@app.route('/add_supplier', methods=['POST'])
+def add_supplier_route():
+    add_supplier(
+        request.form['supplier_name'],
+        request.form['supplier_phone'],
+        request.form['supplier_email'],
+        request.form['product_id'],
+        request.form['product_cost'])
+    return redirect(url_for('index'))
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # SALES
